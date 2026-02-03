@@ -1,97 +1,102 @@
 import os
 import cv2
+import pandas as pd
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 
 class MicroExpressionDataset(Dataset):
-    def __init__(self, root_dir, transform=None):
-
-        self.root_dir = root_dir
+    def __init__(self, image_root, excel_path, transform=None):
+        self.image_root = image_root
         self.transform = transform
         self.samples = []
- 
-        for root, dirs, files in os.walk(root_dir):
-            images = sorted([f for f in files if f.endswith(('.jpg'))])
-            
-            if len(images) > 0:
-                # if found an images then select frames
-                # access information file, check Onset and Offset frames
-                # Onset = First Frame
-                # Offset = Last Frame
-                # Target = Mathematical Middle Frame
-                
-                onset_name = images[0]
-                offset_name = images[-1]
-                middle_idx = len(images) // 2
-                middle_name = images[middle_idx]
-                
-                # Store the full paths
-                self.samples.append({
-                    "onset_path": os.path.join(root, onset_name),
-                    "offset_path": os.path.join(root, offset_name),
-                    "middle_path": os.path.join(root, middle_name),
-                    "folder_name": os.path.basename(root)
-                })
+        
+        # --- MAPPING CONFIGURATION ---
+        self.subject_map = {
+            1: "15", 2: "16", 3: "19", 4: "20", 5: "21",
+            6: "22", 7: "23", 8: "24", 9: "25", 10: "25",
+            11: "27", 12: "29", 13: "30", 14: "31", 15: "32",
+            16: "33", 17: "34", 18: "35", 19: "36", 20: "37",
+            21: "38", 22: "40"
+        }
 
-        print(f"Dataset Loaded: Found {len(self.samples)} video sequences.")
+        # Emotion Mapping (For Stage 3 Fine-tuning)
+        self.emotion_map = {
+            "happiness": 0, "positive": 0,
+            "disgust": 1, "repression": 1, "fear": 1, "sadness": 1, "negative": 1,
+            "surprise": 2
+        }
+
+        if not os.path.exists(excel_path):
+            raise FileNotFoundError(f"Excel file not found at: {excel_path}")
+            
+        print(f"Loading metadata from: {os.path.basename(excel_path)}...")
+        df = pd.read_excel(excel_path)
+        
+        for index, row in df.iterrows():
+            try:
+                # 1. Subject & Video Paths
+                raw_subject_id = int(row.iloc[0])
+                subject_folder = self.subject_map.get(raw_subject_id, str(raw_subject_id))
+                video_name = str(row.iloc[1]).strip()
+                
+                # 2. Get Emotion Label (Col 5 usually, check your excel)
+                emotion_raw = str(row.iloc[5]).strip().lower()
+                if emotion_raw in self.emotion_map:
+                    label_idx = self.emotion_map[emotion_raw]
+                else:
+                    # If doing Stage 3, we skip unknown emotions. 
+                    # For Stage 1/2 (unlabelled), you can set this to -1 or ignore.
+                    continue 
+
+                # 3. Frame Numbers
+                onset_num = int(row.iloc[2])
+                apex_num = int(row.iloc[3])
+                offset_num = int(row.iloc[4])
+                
+                # 4. Construct Full Paths
+                video_folder_path = os.path.join(self.image_root, subject_folder, video_name)
+                p_onset = os.path.join(video_folder_path, f"img{onset_num}.jpg")
+                p_apex = os.path.join(video_folder_path, f"img{apex_num}.jpg")
+                p_offset = os.path.join(video_folder_path, f"img{offset_num}.jpg")
+
+                # 5. Validate & Store
+                if os.path.exists(p_onset) and os.path.exists(p_apex) and os.path.exists(p_offset):
+                    self.samples.append({
+                        "onset_path": p_onset,
+                        "apex_path": p_apex,
+                        "offset_path": p_offset,
+                        "label": label_idx
+                    })
+
+            except Exception as e:
+                continue
+
+        print(f"Dataset Loaded: Found {len(self.samples)} valid samples.")
 
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        # 3. LOAD IMAGES WHEN REQUESTED
-        paths = self.samples[idx]
+        item = self.samples[idx]
         
-        # Load as RGB
-        onset = cv2.imread(paths["onset_path"])
-        onset = cv2.cvtColor(onset, cv2.COLOR_BGR2RGB)
-        
-        offset = cv2.imread(paths["offset_path"])
-        offset = cv2.cvtColor(offset, cv2.COLOR_BGR2RGB)
-        
-        middle = cv2.imread(paths["middle_path"])
-        middle = cv2.cvtColor(middle, cv2.COLOR_BGR2RGB)
+        # Load Images
+        try:
+            onset = cv2.cvtColor(cv2.imread(item["onset_path"]), cv2.COLOR_BGR2RGB)
+            apex = cv2.cvtColor(cv2.imread(item["apex_path"]), cv2.COLOR_BGR2RGB)
+            offset = cv2.cvtColor(cv2.imread(item["offset_path"]), cv2.COLOR_BGR2RGB)
 
-        # 4. APPLY TRANSFORMS (Convert to Tensor 0.0 - 1.0)
-        if self.transform:
-            onset = self.transform(onset)
-            offset = self.transform(offset)
-            middle = self.transform(middle)
+            if self.transform:
+                onset = self.transform(onset)
+                apex = self.transform(apex)
+                offset = self.transform(offset)
+                
+            label = torch.tensor(item["label"], dtype=torch.long)
             
-        return onset, offset, middle
-
-# ==========================================
-# TESTING BLOCK
-# ==========================================
-if __name__ == "__main__":
-    # Define standard transforms (To Tensor)
-    data_transform = transforms.Compose([
-        transforms.ToPILImage(),
-        transforms.ToTensor(), # Converts to [0, 1] range
-    ])
-
-    # AUTO-DETECT PATH
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(current_dir))
-    
-    # POINT TO YOUR NEW PREPROCESSED FOLDER
-    # NOTE: Update 'CASME2' if you named the folder differently during input
-    dataset_path = os.path.join(project_root, "Dataset", "models_Preprocess", "CASME2_preprocessed")
-
-    if os.path.exists(dataset_path):
-        # Initialize Dataset
-        dataset = MicroExpressionDataset(dataset_path, transform=data_transform)
-        
-        # Create a DataLoader (Batch size 4 for testing)
-        dataloader = DataLoader(dataset, batch_size=4, shuffle=True)
-        
-        # Get one batch to verify
-        data_iter = iter(dataloader)
-        onset_batch, offset_batch, middle_batch = next(data_iter)
-        
-        print(f"\nSuccess! Batch Shape: {onset_batch.shape}")
-        print("Format: [Batch_Size, Channels, Height, Width]")
-        print("Ready for Stage 1 Training.")
-    else:
-        print(f"Error: Could not find preprocessed data at {dataset_path}")
+            # Return tuple: (Onset, Apex, Offset, Label)
+            return onset, apex, offset, label
+            
+        except Exception:
+            # Return zeros if image load fails
+            zero_img = torch.zeros(3, 224, 224)
+            return zero_img, zero_img, zero_img, torch.tensor(0)
