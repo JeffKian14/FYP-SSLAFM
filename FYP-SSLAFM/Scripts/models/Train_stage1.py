@@ -7,7 +7,7 @@ from torchvision import transforms
 
 # IMPORT YOUR CUSTOM MODULES
 # (Make sure these files are in the same folder)
-from Pretraining_stage1 import MicroExpressionDataset
+from Folder_access import MicroExpressionDataset
 from Pretraining_stage1b import Generative_Model
 
 # ==========================================
