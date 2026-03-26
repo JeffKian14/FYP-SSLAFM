@@ -41,21 +41,9 @@ def info_nce_loss(features, batch_size, n_views=2, temperature=0.1, device='cuda
     logits = logits / temperature
     return logits, target_labels
 
-def get_motion_signature(onset, offset, generator):
-    with torch.no_grad():
-        predicted_middle, _ = generator(onset, offset)
-        dif_onsetMid = torch.abs(predicted_middle - onset)
-        dif_offsetMid = torch.abs(predicted_middle - offset)
-        motion_signature = 0.5 * (dif_onsetMid + dif_offsetMid)
 
-    return motion_signature
-
-# ==========================================
-# VISUALISATION FUNCTIONS FOR STAGE 2
-# ==========================================
 def visualize_augmentations(org, aug_A, aug_B, epoch, save_path):
     """Saves a side-by-side comparison of the original motion signature and its two augmentations."""
-    # Move to CPU, detach, permute to HWC, and clip to [0, 1] for safe matplotlib viewing
     img_org = np.clip(org[0].cpu().detach().permute(1, 2, 0).numpy(), 0, 1)
     img_A = np.clip(aug_A[0].cpu().detach().permute(1, 2, 0).numpy(), 0, 1)
     img_B = np.clip(aug_B[0].cpu().detach().permute(1, 2, 0).numpy(), 0, 1)
@@ -85,13 +73,25 @@ def visualize_similarity_matrix(features, epoch, save_path):
     sim_matrix = torch.matmul(features, features.T).cpu().detach().numpy()
 
     plt.figure(figsize=(8, 8))
-    # 'viridis' is great for similarity matrices. High similarity = yellow, low = dark purple.
+    # 'viridis' is great for similarity matrices. High similarit = yellow, low = dark purple.
     plt.imshow(sim_matrix, cmap='viridis', interpolation='nearest', vmin=-1, vmax=1)
     plt.colorbar(label="Cosine Similarity")
     plt.title(f"Batch Similarity Matrix - Epoch {epoch}")
     plt.axis('off')
     plt.savefig(save_path)
     plt.close()
+
+def crop_and_resize_signature(tensor_batch):
+    B, C, H, W = tensor_batch.shape
+    
+    bottom_crop = int(H * 0.10)
+    side_crop = int(W * 0.10)
+    
+    cropped = tensor_batch[:, :, 0 : (H - bottom_crop), side_crop : (W - side_crop)]
+    resized = F.interpolate(cropped, size=(H, W), mode='bilinear', align_corners=False)
+    
+    return resized
+
 
 BATCH_SIZE = 8          
 LEARNING_RATE = 1e-4    
@@ -117,8 +117,10 @@ def train_stage2():
     
     # adjustment can be more complex in future training, cause the model can learn more complex features
     augment = transforms.Compose([
-        transforms.RandomHorizontalFlip(p=0.3),
+        transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomResizedCrop(size=(224,224), scale=(0.95,1.0)),
+        transforms.RandomRotation(degrees=5),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0, hue=0),
     ])
 
     dataset = MicroExpressionDataset(image_root=dataset_path, excel_path=excel_path, transform=transform)
@@ -140,16 +142,12 @@ def train_stage2():
     print(f"Training on device: {DEVICE}")
     print("Starting Stage 2: Contrastive Learning")
 
-    # ==========================================
-    # NEW: GRAB A FIXED BATCH FOR VISUALIZATION
-    # ==========================================
     data_iter = iter(dataloader)
     fixed_onset, _, fixed_offset, _ = next(data_iter)
     
     fixed_onset = fixed_onset.to(DEVICE)
     fixed_offset = fixed_offset.to(DEVICE)
     print("Locked in a fixed sample for epoch-by-epoch visual tracking.")
-    # ==========================================
 
     best_loss = float('inf')
     history_loss = []
@@ -166,8 +164,11 @@ def train_stage2():
 
             dif_onsetMid = torch.abs(predicted_middle - onset)
             dif_offsetMid = torch.abs(predicted_middle - offset)
-
+            # motion_signature_org = torch.abs(predicted_middle - offset)
             motion_signature_org = 0.5 * (dif_onsetMid + dif_offsetMid)
+            motion_signature_org = crop_and_resize_signature(motion_signature_org)
+
+            # motion_signature_org = 0.5 * (dif_onsetMid + dif_offsetMid)
             motion_signature_augA = augment(motion_signature_org)
             motion_signature_augB = augment(motion_signature_org)
 
@@ -188,35 +189,31 @@ def train_stage2():
             if (i + 1) % 10 == 0:
                 print(f"Epoch [{epoch+1}/{EPOCHS}], Step [{i+1}/{len(dataloader)}], Loss: {loss.item():.4f}")
 
-            # --- VISUALISATION TRIGGER (USING FIXED BATCH) ---
-            if i == 0 and (epoch == 0 or (epoch + 1) % 10 == 0):
-                model_s2.eval() # Temporarily set to evaluation mode
+            if i == 0 and (epoch == 0 or epoch == 9 or epoch == 49 or epoch == 99):
+                model_s2.eval() 
                 
                 with torch.no_grad():
-                    # 1. Process fixed batch through Stage 1
                     fixed_pred_mid, _ = model_s1(fixed_onset, fixed_offset)
                     fixed_dif_onset = torch.abs(fixed_pred_mid - fixed_onset)
                     fixed_dif_offset = torch.abs(fixed_pred_mid - fixed_offset)
                     fixed_motion_org = 0.5 * (fixed_dif_onset + fixed_dif_offset)
 
-                    # 2. Apply current augmentations
+                    fixed_motion_org = crop_and_resize_signature(fixed_motion_org)
+
                     fixed_augA = augment(fixed_motion_org)
                     fixed_augB = augment(fixed_motion_org)
 
-                    # 3. Process through Stage 2
                     fixed_sample_A = model_s2(fixed_augA)
                     fixed_sample_B = model_s2(fixed_augB)
                     fixed_features = torch.cat([fixed_sample_A, fixed_sample_B], dim=0)
 
-                # Generate paths and save
                 aug_path = os.path.join(current_dir, f"Stage2_Epoch_{epoch+1}_Augmentations.png")
                 sim_path = os.path.join(current_dir, f"Stage2_Epoch_{epoch+1}_SimMatrix.png")
                 
                 visualize_augmentations(fixed_motion_org, fixed_augA, fixed_augB, epoch+1, aug_path)
                 visualize_similarity_matrix(fixed_features, epoch+1, sim_path)
                 
-                model_s2.train() # Switch back to training mode
-            # -----------------------------
+                model_s2.train()
 
         avg_loss = running_loss / len(dataloader)
         history_loss.append(avg_loss)
@@ -227,10 +224,6 @@ def train_stage2():
             best_model_path = os.path.join(current_dir, "stage2_best.pth")
             torch.save(model_s2.state_dict(), best_model_path)
             print(f"Saving best model with Loss ({best_loss:.4f})")
-        
-        if (epoch + 1) % 10 == 0:
-            save_path = os.path.join(current_dir, f"stage2_checkpoint_epoch_{epoch+1}.pth")
-            torch.save(model_s2.state_dict(), save_path)
             
     print("\nStage 2 Training Complete!")
 
