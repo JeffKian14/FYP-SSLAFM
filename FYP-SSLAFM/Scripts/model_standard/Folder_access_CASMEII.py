@@ -48,8 +48,9 @@ class CASME2Dataset(Dataset):
                         "offset_path": offset_frame,
                         "label": label
                     })
-                    if subject_id not in self.subjects:
-                        self.subjects.append(subject_id)
+                    
+                    self.subjects.append(subject_id)
+                    
                 else:
                     missing_count += 1
                     if missing_count <= 3: 

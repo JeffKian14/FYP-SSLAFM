@@ -60,14 +60,12 @@ class MicroExpressionDataset(Dataset):
                 apex_frame = os.path.join(video_folder_path, f"img{apex_num}.jpg")
                 offset_frame = os.path.join(video_folder_path, f"img{offset_num}.jpg")
 
-                # Check 2: Do all three images physically exist on the hard drive?
                 missing_frames = []
                 if not os.path.exists(onset_frame): missing_frames.append(f"Onset (img{onset_num}.jpg)")
                 if not os.path.exists(apex_frame): missing_frames.append(f"Apex (img{apex_num}.jpg)")
                 if not os.path.exists(offset_frame): missing_frames.append(f"Offset (img{offset_num}.jpg)")
 
                 if not missing_frames:
-                    # Success!
                     self.samples.append({
                         "onset_path": onset_frame,
                         "apex_path": apex_frame,

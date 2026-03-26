@@ -68,7 +68,6 @@ class SAMMDataset(Dataset):
             f"{frame_num:06d}"        
         ]
         
-        # Remove duplicates just to be efficient
         frame_strings = list(set(frame_strings))
         
         prefixes = [subject_folder, video_name]
