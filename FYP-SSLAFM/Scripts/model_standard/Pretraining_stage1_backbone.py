@@ -88,14 +88,4 @@ class Model(nn.Module):
         predicted_middle = self.decoder(feature_vector)
         
         return predicted_middle, feature_vector
-
-if __name__ == "__main__":
-    onset_frame = torch.randn(8, 3, 224, 224)
-    offset_frame = torch.randn(8, 3, 224, 224)
-
-    model = Model()
-    pred_mid, features = model(onset_frame, offset_frame)
     
-    print(f"Input shape: {onset_frame.shape}")
-    print(f"Latent Vector shape: {features.shape}")
-    print(f"Predicted Middle Frame shape: {pred_mid.shape}")
