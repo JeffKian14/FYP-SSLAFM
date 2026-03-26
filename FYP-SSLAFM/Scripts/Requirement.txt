@@ -1,0 +1,16 @@
+The Preprocessing library requirement:
+- Python 3.10
+- NumPy 1.26.4
+- dlib 19.24
+- OpenCV
+
+The normal model training library requriment:
+- Python 3.11
+- opencv-python
+- pandas
+- openpyxl
+- scikit-learn
+- plotly
+- matplotlib
+- numpy
+- pytorch-msssim
