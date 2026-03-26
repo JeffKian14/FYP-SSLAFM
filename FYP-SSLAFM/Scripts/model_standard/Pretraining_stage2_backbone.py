@@ -14,7 +14,6 @@ class Contrastive_Model(nn.Module):
             state_dict = torch.load(stage1_weights_path)
             self.backbone.load_state_dict(state_dict)
 
-        # forcing 6 channels to 3 channels picture to allow loading of pretrained weights
         old_conv = self.backbone.encoder.conv1
         new_conv = nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1)
         
@@ -30,9 +29,9 @@ class Contrastive_Model(nn.Module):
             
         # Projection Head
         self.projection_head = nn.Sequential(
-            nn.AdaptiveAvgPool2d((8, 8)),  
+            nn.AdaptiveAvgPool2d((10, 10)),  
             nn.Flatten(),
-            nn.Linear(256 * 8 * 8, 1024),          
+            nn.Linear(256 * 10 * 10, 1024),          
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(p=0.5),  
