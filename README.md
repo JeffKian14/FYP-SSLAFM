@@ -1,4 +1,16 @@
 # FYP-SSLAFM
+
+Self-Supervised Learning for Analysis of Facial Micro-expressions
+
+Heriot-Watt University | BSc (Hons) Computer Science
+Status: Unpublished – Submitted to Lecturer for Academic Review Only
+
+Developed a Self-Supervised Learning (SSL) framework for facial micro-expression recognition, addressing the scarcity of labelled datasets. The research integrates Generative Learning and Contrastive Learning using a CNN-based architecture to extract subtle facial motion features without relying on manually annotated apex frames.
+
+The model was fine-tuned to classify three emotion categories: Positive, Negative, and Surprise, and evaluated across the CASME II and SAMM datasets, demonstrating promising cross-dataset generalisation.
+
+Technologies: Python, PyTorch, CNN, OpenCV, Dlib, Scikit-learn.
+
 This framework, consisted of 13 files in model standard folder which is:
 - directory script and dataset system file
   - CAS(ME)^2code)final.xlsx
